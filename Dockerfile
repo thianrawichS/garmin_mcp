@@ -38,8 +38,10 @@ RUN mkdir -p /root/.garminconnect && \
 
 # Set the entrypoint to run the MCP server
 # ENTRYPOINT ["garmin-mcp"]
+COPY guard.py ./
 COPY render-entrypoint.sh /usr/local/bin/render-entrypoint.sh
 RUN chmod +x /usr/local/bin/render-entrypoint.sh
+
 ENTRYPOINT ["/usr/local/bin/render-entrypoint.sh"]
 
 # Health check (optional - adjust based on your needs)
