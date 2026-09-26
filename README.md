@@ -28,7 +28,7 @@ Garmin's API is accessed via the awesome [python-garminconnect](https://github.c
 This MCP server implements **110+ tools** covering ~90% of the [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) library (v0.3.2):
 
 - ✅ Activity Management (20 tools) - includes write tools for type, description, event type, perceived effort, and feel
-- ✅ Health & Wellness (33 tools) - includes custom lightweight summary tools
+- ✅ Health & Wellness (34 tools) - includes custom lightweight summary tools
 - ✅ Training & Performance (13 tools) - includes CTL/ATL/TSB, HRV, VO2 max, and respiration trends
 - ✅ Workouts (8 tools)
 - ✅ Devices (7 tools)
@@ -881,6 +881,27 @@ Once connected in Claude, you can ask questions like:
 - "What's my season best 20-minute power and when did I set it?"
 
 ## Troubleshooting
+
+### `get_training_effect` returns HTTP 403 for a valid activity
+
+Garmin's activity-details endpoint (`/activity-service/activity/{id}`) can
+return **403 Forbidden** even when the same activity is visible in list tools.
+`get_training_effect` now falls back to activity list search, which still
+includes aerobic/anaerobic training effect for recent activities.
+
+If the activity is older than the recent-search window, list the activity with
+`get_activities` / `get_activities_by_date` and retry, or use those list fields
+directly.
+
+### `get_goals` returns no goals that exist in Garmin Connect
+
+Garmin's goal-service only returns goals created in Connect's current Goals UI
+(named distance/time targets such as a monthly cycling goal) when the request
+sends `Sec-Fetch-Site: same-origin` and uses a 1-based `start`. With
+`start=0`, it returns an empty list. python-garminconnect's `get_goals()` does not do both
+(through 0.3.16), so `get_goals` here calls `/goal-service/goal/goals`
+directly the way Connect's Goals page does, and uses the library call only as
+a fallback.
 
 ### "Failed to spawn process: No such file or directory"
 
