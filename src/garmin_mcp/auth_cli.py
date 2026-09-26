@@ -268,6 +268,52 @@ def authenticate(token_path: str, token_base64_path: str, force_reauth: bool = F
         return False
 
 
+def push_tokens_to_store(token_path: str) -> bool:
+    """Save the token file to the Upstash token store used by a hosted server.
+
+    Lets a manual re-auth reach a server on an ephemeral host (e.g. Render)
+    without editing GARMIN_TOKENS_B64 or redeploying: the server loads the
+    newest tokens from the store on its next start, or as soon as its current
+    tokens stop refreshing.
+
+    Returns:
+        bool: True if the tokens were saved, False otherwise
+    """
+    from garmin_mcp import token_store
+
+    store = token_store.store_from_env()
+    if store is None:
+        print(
+            "\n✗ --push-to-store needs UPSTASH_REDIS_REST_URL and "
+            "UPSTASH_REDIS_REST_TOKEN to be set.",
+            file=sys.stderr,
+        )
+        return False
+
+    path = token_store.token_file(resolve_token_path(token_path))
+    try:
+        payload = path.read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"\n✗ Could not read {path}: {e}", file=sys.stderr)
+        return False
+    if token_store.token_freshness(payload) <= 0:
+        print(f"\n✗ {path} does not contain usable Garmin tokens.", file=sys.stderr)
+        return False
+
+    try:
+        store.set(payload)
+    except token_store.TokenStoreError as e:
+        print(f"\n✗ Could not save tokens to the token store: {e}", file=sys.stderr)
+        return False
+
+    print(f"\n✓ Tokens saved to the token store (key '{store.key}').")
+    print("  The hosted server picks them up on its next start, or as soon as")
+    print("  its current tokens stop working. No redeploy needed.")
+    print(f"  Don't reuse '{path.parent}' elsewhere: each refresh cancels the")
+    print("  previous refresh token, so two servers can't share one login.")
+    return True
+
+
 def verify_tokens(token_path: str) -> bool:
     """Verify existing tokens are valid.
 
@@ -318,6 +364,10 @@ Examples:
 
   # Use custom token location
   garmin-mcp-auth --token-path ~/.garmin_tokens
+
+  # Re-authenticate and hand the tokens to a hosted server's Upstash store
+  UPSTASH_REDIS_REST_URL=... UPSTASH_REDIS_REST_TOKEN=... \\
+    garmin-mcp-auth --force-reauth --token-path ~/.garminconnect-render --push-to-store
         """
     )
 
@@ -347,6 +397,16 @@ Examples:
         help="Use Garmin Connect China (garmin.cn) instead of the international version"
     )
 
+    parser.add_argument(
+        "--push-to-store",
+        action="store_true",
+        help=(
+            "After authenticating, save the tokens to the Upstash token store a "
+            "hosted server reads (needs UPSTASH_REDIS_REST_URL and "
+            "UPSTASH_REDIS_REST_TOKEN; key from GARMIN_TOKENS_STORE_KEY)"
+        ),
+    )
+
     args = parser.parse_args()
 
     # Get token paths
@@ -372,6 +432,8 @@ Examples:
 
     # Authenticate mode
     success = authenticate(token_path, token_base64_path, args.force_reauth, is_cn)
+    if success and args.push_to_store:
+        success = push_tokens_to_store(token_path)
     sys.exit(0 if success else 1)
 
 

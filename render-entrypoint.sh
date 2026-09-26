@@ -7,6 +7,9 @@ chmod 700 "$TOKEN_DIR"
 
 # Restore tokens only if the directory is empty. This keeps a Render disk
 # (if you attach one) authoritative, so refreshed tokens survive restarts.
+# With UPSTASH_REDIS_REST_URL/TOKEN set, the server then swaps in the newest
+# tokens from the Upstash store (see src/garmin_mcp/token_store.py), so this
+# snapshot only matters for the very first start.
 if [ -n "${GARMIN_TOKENS_B64:-}" ] && [ -z "$(ls -A "$TOKEN_DIR" 2>/dev/null)" ]; then
   echo "Restoring Garmin tokens into $TOKEN_DIR" >&2
   echo "$GARMIN_TOKENS_B64" | base64 -d | tar -xz -C "$TOKEN_DIR"
@@ -14,7 +17,11 @@ if [ -n "${GARMIN_TOKENS_B64:-}" ] && [ -z "$(ls -A "$TOKEN_DIR" 2>/dev/null)" ]
 fi
 
 if [ -z "$(ls -A "$TOKEN_DIR" 2>/dev/null)" ]; then
-  echo "WARNING: no tokens in $TOKEN_DIR. Tool calls will fail until you set GARMIN_TOKENS_B64." >&2
+  if [ -n "${UPSTASH_REDIS_REST_URL:-}" ]; then
+    echo "No local tokens in $TOKEN_DIR; the server will load them from the Upstash token store." >&2
+  else
+    echo "WARNING: no tokens in $TOKEN_DIR. Tool calls will fail until you set GARMIN_TOKENS_B64." >&2
+  fi
 fi
 
 # --- Unguarded mode: MCP served directly on Render's port -------------------

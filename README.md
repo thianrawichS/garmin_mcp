@@ -501,6 +501,56 @@ Trying to login to Garmin Connect using token data from directory '/home/you/.ga
 
 ---
 
+### Hosting on Render (or any host that wipes its disk on restart)
+
+Garmin access tokens last about 24 hours, and every refresh issues a new
+refresh token and cancels the previous one. On a host whose filesystem resets
+on restart (Render's free plan spins down after 15 idle minutes, and every
+deploy starts clean), the refreshed tokens are lost. The next start replays
+the spent refresh token from `GARMIN_TOKENS_B64`, so you end up
+re-authenticating about once a day.
+
+The fix is to give the server a durable place for its tokens: a free
+[Upstash Redis](https://upstash.com) database, used over its REST API (no
+extra dependencies).
+
+1. Create a Redis database in the Upstash console and copy its
+   `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+2. Add both as environment variables on the Render service and deploy.
+
+On startup the server keeps whichever tokens are newest, either its local file
+(restored from `GARMIN_TOKENS_B64`) or the copy in the store. Every refresh is
+written back to the store, so each restart resumes from the latest tokens. Once
+the store holds tokens, `GARMIN_TOKENS_B64` is optional. Token refreshes are
+also serialised, so parallel tool calls can't spend the same refresh token
+twice.
+
+| Env var | Purpose |
+| --- | --- |
+| `UPSTASH_REDIS_REST_URL` | Upstash REST endpoint. Setting it (with the token) enables the store. |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token. Keep it secret: the store holds a live Garmin session. |
+| `GARMIN_TOKENS_STORE_KEY` | Key for the tokens (default `garmin-mcp:tokens`). Use one key per Garmin account. |
+
+If you ever need to log in again (after a Garmin password change, say), push
+fresh tokens straight to the store instead of re-encoding `GARMIN_TOKENS_B64`:
+
+```bash
+UPSTASH_REDIS_REST_URL=... UPSTASH_REDIS_REST_TOKEN=... \
+  garmin-mcp-auth --force-reauth --token-path ~/.garminconnect-render --push-to-store
+```
+
+The running server switches to them as soon as its own tokens stop working; no
+redeploy is needed. Keep that token folder for the server only: two servers
+sharing one login cancel each other's refresh tokens.
+
+Garmin refresh tokens expire after roughly 90 days unused, and Upstash archives
+free databases after 30 days of inactivity. If the server can sit unused for
+weeks, have something request `/healthz` once a day (cron-job.org, for
+example). Each wake-up logs in, refreshes the tokens when due and touches the
+store.
+
+---
+
 ### Development Setup
 
 1. Install the required packages on a new environment:
