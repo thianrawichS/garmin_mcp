@@ -14,6 +14,7 @@ from garminconnect import Garmin, GarminConnectAuthenticationError, GarminConnec
 
 # Import all modules
 from garmin_mcp import token_utils
+from garmin_mcp import token_store
 from garmin_mcp import activity_management
 from garmin_mcp import health_wellness
 from garmin_mcp import user_profile
@@ -411,6 +412,15 @@ def init_api(email, password):
     # rate-limited Garmin login from a non-interactive MCP process.
     email = _normalize_optional_user_config(email, "garmin_email")
     password = _normalize_optional_user_config(password, "garmin_password")
+
+    # Hosts with an ephemeral disk (e.g. Render) lose refreshed tokens on every
+    # restart, and Garmin refresh tokens are single-use. With a durable token
+    # store configured, start from its newest tokens and mirror every refresh
+    # back to it. Without one, only refreshes are serialised (token_store.py).
+    store = token_store.store_from_env()
+    token_store.install(store)
+    if store is not None:
+        token_store.sync_from_store(tokenstore, store)
 
     try:
         # Using Oauth1 and OAuth2 token files from directory
